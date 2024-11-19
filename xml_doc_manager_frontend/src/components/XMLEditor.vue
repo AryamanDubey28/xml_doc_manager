@@ -1,7 +1,27 @@
 <template>
     <PrimeCard>
       <template #title>
-        <h2>Create New Document</h2>
+        <div class="flex align-items-center justify-content-between">
+          <h2>XML Editor</h2>
+          <div class="flex gap-2">
+            <PrimeButton
+              icon="pi pi-upload"
+              severity="secondary"
+              text
+              rounded
+              @click="triggerFileUpload"
+              v-tooltip="'Upload XML File'"
+            />
+            <PrimeButton
+              icon="pi pi-code"
+              severity="secondary"
+              text
+              rounded
+              @click="showMarshalDialog = true"
+              v-tooltip="'Marshal XML'"
+            />
+          </div>
+        </div>
       </template>
       <template #content>
         <div class="flex flex-column gap-3">
@@ -14,24 +34,6 @@
               />
               <label for="documentName">Document Name</label>
             </span>
-  
-            <div>
-              <input
-                type="file"
-                ref="fileInput"
-                @change="handleFileUpload"
-                accept=".xml"
-                class="hidden"
-              />
-              <PrimeButton
-                icon="pi pi-upload"
-                severity="secondary"
-                text
-                rounded
-                @click="triggerFileUpload"
-                v-tooltip="'Upload XML File'"
-              />
-            </div>
           </div>
   
           <div
@@ -57,20 +59,104 @@
         </div>
       </template>
     </PrimeCard>
+  
+    <!-- Marshal Dialog -->
+    <PrimeDialog
+      v-model:visible="showMarshalDialog"
+      modal
+      header="Marshal XML"
+      :style="{ width: '90vw' }"
+      :maximizable="true"
+    >
+      <div v-if="!marshalledData" class="flex flex-column gap-3">
+        <h3>Select Target Class</h3>
+        <div class="flex flex-column gap-2">
+          <div 
+            v-for="cls in availableClasses" 
+            :key="cls.name"
+            class="p-3 surface-card border-round cursor-pointer hover:surface-hover"
+            @click="selectedClass = cls.name"
+            :class="{ 'border-primary': selectedClass === cls.name }"
+          >
+            <div class="text-lg font-bold">{{ cls.name }}</div>
+            <div class="text-sm text-color-secondary">{{ cls.description }}</div>
+            <!-- <div class="mt-2 text-sm">
+              <pre class="p-2 surface-ground border-round">{{ cls.example }}</pre>
+            </div> -->
+          </div>
+        </div>
+        
+        <div v-if="marshalError" class="p-error mt-2">{{ marshalError }}</div>
+        
+        <div class="flex justify-content-end mt-3">
+          <PrimeButton
+            label="Marshal"
+            icon="pi pi-code"
+            @click="marshalXml"
+            :disabled="!selectedClass"
+          />
+        </div>
+      </div>
+      
+      <div v-else class="flex flex-column gap-3">
+        <h3>Marshalled Object</h3>
+        <div class="surface-ground p-4 border-round">
+          <ObjectViewer :data="marshalledData" />
+        </div>
+        <div class="flex justify-content-end">
+          <PrimeButton
+            label="Back"
+            icon="pi pi-arrow-left"
+            text
+            @click="resetMarshal"
+          />
+        </div>
+      </div>
+    </PrimeDialog>
+  
+    <input
+      type="file"
+      ref="fileInput"
+      @change="handleFileUpload"
+      accept=".xml"
+      class="hidden"
+    />
   </template>
   
   <script setup>
   import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
   import loader from '@monaco-editor/loader';
+  import ObjectViewer from './ObjectViewer.vue';
   
   const documentName = ref('');
   const xmlContent = ref('');
   const fileInput = ref(null);
   const editorContainer = ref(null);
+  const showMarshalDialog = ref(false);
+  const marshalledData = ref(null);
+  const marshalError = ref(null);
+  const selectedClass = ref(null);
   let editor = null;
   let monaco = null;
   
   const emit = defineEmits(['document-created']);
+  
+  const availableClasses = ref([
+    {
+      name: 'com.example.xmldemo.model.Book',
+      description: 'Book with title, author, publisher, and genres',
+      example: `<book id="ID">
+    <title>TITLE</title>
+    <author>AUTHOR</author>
+    <publisher>PUBLISHER</publisher>
+    <year>YEAR</year>
+    <genres>
+      <genre>GENRE 1</genre>
+      <genre>GENRE 2</genre>
+    </genres>
+  </book>`
+    }
+  ]);
   
   const monacoOptions = {
     automaticLayout: true,
@@ -129,7 +215,6 @@
   };
   
   onMounted(async () => {
-    await nextTick();
     await initMonaco();
   });
   
@@ -193,9 +278,42 @@
       console.error('Error creating document:', error);
     }
   };
+  
+  const marshalXml = async () => {
+    try {
+      marshalError.value = null;
+      const response = await fetch(`http://localhost:8080/api/documents/marshal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          xml: xmlContent.value,
+          targetClass: selectedClass.value
+        })
+      });
+  
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to marshal XML');
+      }
+  
+      const result = await response.json();
+      marshalledData.value = result;
+    } catch (error) {
+      marshalError.value = error.message;
+      marshalledData.value = null;
+    }
+  };
+  
+  const resetMarshal = () => {
+    marshalledData.value = null;
+    marshalError.value = null;
+    selectedClass.value = null;
+  };
   </script>
   
-  <style>
+  <style scoped>
   .editor-container {
     border-radius: var(--border-radius);
     overflow: hidden;
@@ -209,119 +327,10 @@
   .hidden {
     display: none;
   }
+  
+  pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
   </style>
-
-
-
-
-<!-- <template>
-    <PrimeCard>
-      <template #title>
-        <h2>Create New Document</h2>
-      </template>
-      <template #content>
-        <div class="flex flex-column gap-3">
-          <div class="flex gap-4 align-items-end">
-            <span class="p-float-label flex-grow-1">
-              <InputText
-                id="documentName"
-                v-model="documentName"
-                class="w-full"
-              />
-              <label for="documentName">Document Name</label>
-            </span>
-            
-            <div>
-              <input
-                type="file"
-                ref="fileInput"
-                @change="handleFileUpload"
-                accept=".xml"
-                class="hidden"
-              />
-              <PrimeButton
-                icon="pi pi-upload"
-                severity="secondary"
-                text
-                rounded
-                @click="triggerFileUpload"
-                v-tooltip="'Upload XML File'"
-              />
-            </div>
-          </div>
-  
-          <span class="p-float-label">
-            <PrimeTextarea
-              id="xmlContent"
-              v-model="xmlContent"
-              rows="24"
-              class="w-full font-mono"
-              style="min-height: 60vh"
-            />
-            <label for="xmlContent">XML Content</label>
-          </span>
-  
-          <div class="flex justify-content-end">
-            <PrimeButton
-              label="Create Document"
-              icon="pi pi-plus"
-              @click="createDocument"
-              :disabled="!documentName || !xmlContent"
-            />
-          </div>
-        </div>
-      </template>
-    </PrimeCard>
-  </template>
-  
-  <script setup>
-  import { ref } from 'vue'
-  
-  const documentName = ref('')
-  const xmlContent = ref('')
-  const fileInput = ref(null)
-  
-  const emit = defineEmits(['document-created'])
-  
-  const triggerFileUpload = () => {
-    fileInput.value?.click()
-  }
-  
-  const handleFileUpload = async (event) => {
-    const file = event.target.files[0]
-    if (file && (file.type === 'text/xml' || file.name.endsWith('.xml'))) {
-      try {
-        const content = await file.text()
-        xmlContent.value = content
-        // Set document name to file name without extension
-        documentName.value = file.name.replace(/\.xml$/, '')
-      } catch (error) {
-        console.error('Error reading file:', error)
-      }
-    }
-  }
-  
-  const createDocument = async () => {
-    try {
-      const response = await fetch('http://localhost:8080/api/documents', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          name: documentName.value,
-          content: xmlContent.value,
-          version: '1.0'
-        })
-      })
-  
-      if (response.ok) {
-        documentName.value = ''
-        xmlContent.value = ''
-        emit('document-created')
-      }
-    } catch (error) {
-      console.error('Error creating document:', error)
-    }
-  }
-  </script> -->

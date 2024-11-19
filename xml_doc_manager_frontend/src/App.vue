@@ -32,7 +32,7 @@
                 <div class="flex align-items-center justify-content-between">
                   <div>
                     <h3 class="m-0 mb-2">{{ doc.name }}</h3>
-                    <p class="text-sm m-0 mb-1">Version: {{ doc.version }}</p>
+                    <p class="text-sm m-0 mb-1">{{ doc.name }}.xml</p>
                     <p class="text-sm m-0 text-color-secondary">
                       Created: {{ new Date(doc.createdAt).toLocaleString() }}
                     </p>

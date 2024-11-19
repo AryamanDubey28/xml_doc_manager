@@ -13,7 +13,7 @@
             <div class="d-flex flex-column">
               <v-list-item-title>{{ doc.name }}</v-list-item-title>
               <v-list-item-subtitle>
-                Version: {{ doc.version }}
+                {{ doc.name }}.xml
                 <br>
                 Created: {{ new Date(doc.createdAt).toLocaleString() }}
               </v-list-item-subtitle>
