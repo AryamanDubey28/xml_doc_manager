@@ -68,41 +68,78 @@
       :style="{ width: '90vw' }"
       :maximizable="true"
     >
+      <!-- Marshal Type Selection -->
       <div v-if="!marshalledData" class="flex flex-column gap-3">
-        <h3>Select Target Class</h3>
-        <div class="flex flex-column gap-2">
-          <div 
-            v-for="cls in availableClasses" 
-            :key="cls.name"
-            class="p-3 surface-card border-round cursor-pointer hover:surface-hover"
-            @click="selectedClass = cls.name"
-            :class="{ 'border-primary': selectedClass === cls.name }"
-          >
-            <div class="text-lg font-bold">{{ cls.name }}</div>
-            <div class="text-sm text-color-secondary">{{ cls.description }}</div>
-            <!-- <div class="mt-2 text-sm">
-              <pre class="p-2 surface-ground border-round">{{ cls.example }}</pre>
-            </div> -->
+        <div class="flex gap-3 mb-4">
+          <PrimeButton
+            :class="{ 'p-button-outlined': marshalType !== 'class' }"
+            @click="marshalType = 'class'"
+            label="Class-based Marshal"
+          />
+          <PrimeButton
+            :class="{ 'p-button-outlined': marshalType !== 'dynamic' }"
+            @click="marshalType = 'dynamic'"
+            label="Dynamic Marshal"
+          />
+        </div>
+  
+        <!-- Class-based Marshaling -->
+        <div v-if="marshalType === 'class'" class="flex flex-column gap-3">
+          <h3>Select Target Class</h3>
+          <div class="flex flex-column gap-2">
+            <div 
+              v-for="cls in availableClasses" 
+              :key="cls.name"
+              class="p-3 surface-card border-round cursor-pointer hover:surface-hover"
+              @click="selectedClass = cls.name"
+              :class="{ 'border-primary': selectedClass === cls.name }"
+            >
+              <div class="text-lg font-bold">{{ cls.name }}</div>
+              <div class="text-sm text-color-secondary">{{ cls.description }}</div>
+            </div>
           </div>
         </div>
-        
+  
+        <!-- Dynamic Marshaling -->
+        <div v-if="marshalType === 'dynamic'" class="flex flex-column gap-3">
+          <h3>Dynamic XML Parsing</h3>
+          <div class="text-sm text-color-secondary mb-3">
+            Parse XML content without requiring a predefined class structure
+          </div>
+        </div>
+  
         <div v-if="marshalError" class="p-error mt-2">{{ marshalError }}</div>
-        
+  
         <div class="flex justify-content-end mt-3">
           <PrimeButton
             label="Marshal"
             icon="pi pi-code"
             @click="marshalXml"
-            :disabled="!selectedClass"
+            :disabled="marshalType === 'class' && !selectedClass"
           />
         </div>
       </div>
-      
+  
+      <!-- Marshalled Result View -->
       <div v-else class="flex flex-column gap-3">
-        <h3>Marshalled Object</h3>
-        <div class="surface-ground p-4 border-round">
-          <ObjectViewer :data="marshalledData" />
+        <div v-if="marshalledMetadata" class="mb-4">
+          <h3>XML Structure</h3>
+          <div class="surface-ground p-3 border-round">
+            <div><strong>Root Element:</strong> {{ marshalledMetadata.rootElement }}</div>
+            <div v-if="marshalledMetadata.namespaces?.length">
+              <strong>Namespaces:</strong>
+              <ul class="m-0 mt-2">
+                <li v-for="ns in marshalledMetadata.namespaces" :key="ns">{{ ns }}</li>
+              </ul>
+            </div>
+          </div>
         </div>
+  
+        <h3>Marshalled Data</h3>
+        <div class="surface-ground p-4 border-round">
+          <TreeViewer :data="{ object: marshalledData, metadata: marshalledMetadata }" />
+        </div>
+        
         <div class="flex justify-content-end">
           <PrimeButton
             label="Back"
@@ -125,38 +162,30 @@
   
   <script setup>
   import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
-  import loader from '@monaco-editor/loader';
-  import ObjectViewer from './ObjectViewer.vue';
-  
-  const documentName = ref('');
-  const xmlContent = ref('');
-  const fileInput = ref(null);
-  const editorContainer = ref(null);
-  const showMarshalDialog = ref(false);
-  const marshalledData = ref(null);
-  const marshalError = ref(null);
-  const selectedClass = ref(null);
-  let editor = null;
-  let monaco = null;
-  
-  const emit = defineEmits(['document-created']);
-  
-  const availableClasses = ref([
-    {
-      name: 'com.example.xmldemo.model.Book',
-      description: 'Book with title, author, publisher, and genres',
-      example: `<book id="ID">
-    <title>TITLE</title>
-    <author>AUTHOR</author>
-    <publisher>PUBLISHER</publisher>
-    <year>YEAR</year>
-    <genres>
-      <genre>GENRE 1</genre>
-      <genre>GENRE 2</genre>
-    </genres>
-  </book>`
-    }
-  ]);
+import loader from '@monaco-editor/loader';
+import TreeViewer from './TreeViewer.vue';
+
+const documentName = ref('');
+const xmlContent = ref('');
+const fileInput = ref(null);
+const editorContainer = ref(null);
+const showMarshalDialog = ref(false);
+const marshalledData = ref(null);
+const marshalledMetadata = ref(null);
+const marshalError = ref(null);
+const selectedClass = ref(null);
+const marshalType = ref('class');
+let editor = null;
+let monaco = null;
+
+const emit = defineEmits(['document-created']);
+
+const availableClasses = ref([
+  {
+    name: 'com.example.xmldemo.model.Book',
+    description: 'Book with title, author, publisher, and genres'
+  }
+]);
   
   const monacoOptions = {
     automaticLayout: true,
@@ -280,37 +309,57 @@
   };
   
   const marshalXml = async () => {
-    try {
-      marshalError.value = null;
-      const response = await fetch(`http://localhost:8080/api/documents/marshal`, {
+  try {
+    marshalError.value = null;
+    
+    let response;
+    if (marshalType.value === 'class') {
+      response = await fetch(`http://localhost:8080/api/documents/marshal`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           xml: xmlContent.value,
           targetClass: selectedClass.value
         })
       });
-  
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to marshal XML');
-      }
-  
-      const result = await response.json();
-      marshalledData.value = result;
-    } catch (error) {
-      marshalError.value = error.message;
-      marshalledData.value = null;
+    } else {
+      response = await fetch(`http://localhost:8080/api/xml/parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          xml: xmlContent.value
+        })
+      });
     }
-  };
-  
-  const resetMarshal = () => {
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to marshal XML');
+    }
+
+    const result = await response.json();
+    
+    if (marshalType.value === 'class') {
+      marshalledData.value = result.object;
+      marshalledMetadata.value = result.metadata;
+    } else {
+      marshalledData.value = result.data;
+      marshalledMetadata.value = result.metadata;
+    }
+  } catch (error) {
+    marshalError.value = error.message;
     marshalledData.value = null;
-    marshalError.value = null;
-    selectedClass.value = null;
-  };
+    marshalledMetadata.value = null;
+  }
+};
+
+const resetMarshal = () => {
+  marshalledData.value = null;
+  marshalledMetadata.value = null;
+  marshalError.value = null;
+  selectedClass.value = null;
+  marshalType.value = 'class';
+};
   </script>
   
   <style scoped>
@@ -333,4 +382,9 @@
     white-space: pre-wrap;
     word-wrap: break-word;
   }
+
+  .border-primary {
+  border: 1px solid var(--primary-color);
+}
+
   </style>
